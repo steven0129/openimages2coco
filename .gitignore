@@ -1,0 +1,12 @@
+train-*/
+train-masks-*/
+val-masks-*/
+set-config-*/
+aws/
+validation/
+classes-segmentation.txt
+oidv6-class-descriptions.csv
+oidv6-train-annotations-human-imagelabels.csv
+train-annotations-object-segmentation.csv
+validation-annotations-object-segmentation.csv
+*.json

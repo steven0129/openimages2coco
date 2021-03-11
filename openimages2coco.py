@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 train_ann = pd.read_csv('train-annotations-object-segmentation.csv')
 val_ann = pd.read_csv('validation-annotations-object-segmentation.csv')
+human_verified = pd.read_csv('oidv6-train-annotations-human-imagelabels.csv')
 
 LABEL_OPEN2COCO = {
     '/m/04_sv': 4,  # Motorcycle
@@ -50,21 +51,30 @@ IMGID_OPEN2COCO = {}
 
 def cnt2poly(contours):  # Contour --> Polygon
     segmentations = []
-
     for contour in contours:
-        cnt_list = contour.flatten().tolist()
-        cnt_str = f'{float(cnt_list[0])},{float(cnt_list[1])}'
-        segmentations.append(cnt_str)
+        single_segmentation = []
 
-    if len(segmentations) < 4:
+        for single_point in contour:
+            cnt_list = single_point.flatten().tolist()
+            cnt_str = f'{float(cnt_list[0])},{float(cnt_list[1])}'
+            single_segmentation.append(cnt_str)
+
+        if len(single_segmentation) >= 4:
+            segmentations.append('['  + ','.join(single_segmentation) + ']')
+
+    if len(segmentations) == 0:
         return None
     else:
-        return '[[' + ','.join(segmentations) + ']]'
+        return '[' + ','.join(segmentations) + ']'
 
 def cnt2bbox(contours):  # Contour --> BBox (xywh)
-    contours = list(map(lambda x: x.flatten().tolist(), contours))
-    all_x = list(map(lambda x: x[0], contours))
-    all_y = list(map(lambda x: x[1], contours))
+    all_x = []
+    all_y = []
+    
+    for single_contour in contours:
+        single_contour = list(map(lambda x: x.flatten().tolist(), single_contour))
+        all_x.extend(list(map(lambda x: x[0], single_contour)))
+        all_y.extend(list(map(lambda x: x[1], single_contour)))
 
     xmin = min(all_x)
     ymin = min(all_y)
@@ -151,6 +161,8 @@ if __name__ == '__main__':
         for line in FILE:
             img_list.append(line)
 
+    human_verified = human_verified[human_verified['ImageID'].isin(list(map(lambda x: x.split('/')[-1], img_list)))]
+
     for img_list_counter, line in enumerate(tqdm(img_list)):
         filename = line.strip().split('/')[1]
         subset_type = line.strip().split('/')[0]
@@ -175,23 +187,24 @@ if __name__ == '__main__':
         # build annoatations
         flag = 0
         for label, path in zip(labels, masks_path):
+            verification = human_verified[human_verified['ImageID'] == filename]
+            # verification = human_verified[human_verified['ImageID'] == filename][human_verified['LabelName'] == label]
+            # if (not (verification['Confidence'] == 1).any()) or (not (verification['Source'] == 'verification').any()):
+            #     continue
+            
             mask = Image.open(path)
             mask = mask.resize((w, h))
             mask = np.array(mask, np.uint8)
-            contour, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-            areaCalc = lambda x: cv2.contourArea(x)
-            contour.sort(key=areaCalc, reverse=True)
-            areas = list(map(areaCalc, contour))
-
-            try:
-                cnt = contour[0][:, 0, :]
-            except IndexError:
+            contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+            areas = list(map(cv2.contourArea, contours))
+            area_str = str(sum(areas))
+            contours = list(map(lambda x: x[:, 0, :], contours))
+            if len(contours) == 0:
                 continue
             
-            seg_str = cnt2poly(cnt)
-            bbox_str = cnt2bbox(cnt)
-            area_str = str(areas[0])
-
+            seg_str = cnt2poly(contours)
+            bbox_str = cnt2bbox(contours)
+            
             if label in LABEL_OPEN2COCO and seg_str != None and bbox_str != None:
                 flag = 1
                 cat_id = LABEL_OPEN2COCO[label]
@@ -235,7 +248,7 @@ if __name__ == '__main__':
     ann_str += '],'
     img_str += '],'
 
-    open('lg_train20210304_openimages-0.json', 'w').write(f"""
+    open('lg_train20210310_openimages-0.json', 'w').write(f"""
         {{
             {info_str}
             {license_str}

@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 train_ann = pd.read_csv('train-annotations-object-segmentation.csv')
 val_ann = pd.read_csv('validation-annotations-object-segmentation.csv')
-human_verified = pd.read_csv('oidv6-train-annotations-human-imagelabels.csv')
+machine_label = pd.read_csv('train-annotations-machine-imagelabels.csv')
 
 LABEL_OPEN2COCO = {
     '/m/04_sv': 4,  # Motorcycle
@@ -161,7 +161,7 @@ if __name__ == '__main__':
         for line in FILE:
             img_list.append(line)
 
-    human_verified = human_verified[human_verified['ImageID'].isin(list(map(lambda x: x.split('/')[-1], img_list)))]
+    machine_label = machine_label[machine_label['ImageID'].isin(list(map(lambda x: x.split('/')[-1].strip(), img_list)))]
 
     for img_list_counter, line in enumerate(tqdm(img_list)):
         filename = line.strip().split('/')[1]
@@ -187,12 +187,19 @@ if __name__ == '__main__':
         # build annoatations
         flag = 0
         for label, path in zip(labels, masks_path):
-            verification = human_verified[human_verified['ImageID'] == filename]
-            # verification = human_verified[human_verified['ImageID'] == filename][human_verified['LabelName'] == label]
-            # if (not (verification['Confidence'] == 1).any()) or (not (verification['Source'] == 'verification').any()):
-            #     continue
+            curr_machine_label = machine_label
+            curr_machine_label = curr_machine_label[curr_machine_label['ImageID'] == filename]
+            curr_machine_label = curr_machine_label[curr_machine_label['LabelName'] == label]
+            curr_machine_label = curr_machine_label[curr_machine_label['Confidence'] > 0.9]
+
+            if (len(curr_machine_label.index) == 0):
+                continue
             
-            mask = Image.open(path)
+            try:
+                mask = Image.open(path)
+            except Exception:
+                continue
+            
             mask = mask.resize((w, h))
             mask = np.array(mask, np.uint8)
             contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
@@ -248,7 +255,7 @@ if __name__ == '__main__':
     ann_str += '],'
     img_str += '],'
 
-    open('lg_train20210310_openimages-0.json', 'w').write(f"""
+    open(f'lg_train{datetime.datetime.today().strftime("%Y%m%d")}_openimages-0.json', 'w').write(f"""
         {{
             {info_str}
             {license_str}
